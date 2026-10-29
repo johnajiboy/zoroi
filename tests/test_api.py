@@ -50,7 +50,8 @@ def _run(base_url, scenario, on_escalate=None):
 
 def test_meta_and_results(base_url):
     meta = httpx.get(f"{base_url}/api/meta").json()
-    assert len(meta["scenarios"]) == 6
+    assert len(meta["scenarios"]) == 11
+    assert meta["scenarios"][-1]["key"] == "random"
     res = httpx.get(f"{base_url}/api/results").json()
     assert res["rl"]["avg_recovery_min"] < res["rule"]["avg_recovery_min"]
 
@@ -78,3 +79,21 @@ def test_unfamiliar_incident_escalates_and_learns(base_url):
     assert "escalate" not in [e["type"] for e in events]
     assert next(e for e in events if e["type"] == "decision")["action"] == "learned"
     httpx.delete(f"{base_url}/api/lessons")
+
+
+def test_random_outage_runs_to_a_report(base_url):
+    def approve(iid, _ev):
+        httpx.post(f"{base_url}/api/incidents/{iid}/human", json={"how": "approve"})
+
+    for _ in range(3):
+        events = _run(base_url, "random", approve)
+        types = [e["type"] for e in events]
+        assert "error" not in types and "resolved" in types and "report" in types
+        start = events[0]
+        assert start["type"] == "start" and start["name"].startswith("Random: ")
+    httpx.delete(f"{base_url}/api/lessons")
+
+
+def test_unknown_scenario_is_rejected(base_url):
+    r = httpx.post(f"{base_url}/api/incidents", json={"scenario": "nope", "policy": "rl"})
+    assert r.status_code == 404

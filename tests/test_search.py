@@ -11,7 +11,7 @@ def _inputs(key):
 
 
 def test_astar_finds_single_root_cause():
-    for key in ("release", "db", "leak", "cert"):
+    for key in ("release", "config", "db", "disk", "leak", "spike", "cert"):
         roots, alerting, sick = _inputs(key)
         rc = root_cause(alerting, sick)
         assert rc["best"] == roots
@@ -19,10 +19,11 @@ def test_astar_finds_single_root_cause():
 
 
 def test_astar_blames_external_provider_not_payment():
-    roots, alerting, sick = _inputs("provider")
-    rc = root_cause(alerting, sick)
-    assert rc["best"] == ["provider"]
-    assert not rc["stats"]["bfs_correct"]  # BFS stops at payment-svc
+    for key in ("provider", "dns"):
+        roots, alerting, sick = _inputs(key)
+        rc = root_cause(alerting, sick)
+        assert rc["best"] == ["provider"]
+        assert not rc["stats"]["bfs_correct"]  # BFS stops at payment-svc
 
 
 def test_two_failures_found_with_low_confidence():

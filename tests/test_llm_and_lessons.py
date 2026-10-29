@@ -5,7 +5,9 @@ from app.scenarios import build_alerts
 
 def test_mock_llm_patterns():
     expected = {"release": "recent release", "db": "database overload", "leak": "memory climbing",
-                "provider": "external timeouts", "double": "database overload", "cert": "unfamiliar pattern"}
+                "provider": "external timeouts", "double": "database overload", "cert": "unfamiliar pattern",
+                "config": "recent release", "disk": "unfamiliar pattern", "dns": "external timeouts",
+                "spike": "unfamiliar pattern"}
     for key, pattern in expected.items():
         assert mock_parse_alerts(build_alerts(key, seed=1)).pattern == pattern
 

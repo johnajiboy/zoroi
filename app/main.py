@@ -18,7 +18,7 @@ from .agent import BASELINES, POLICY_NAMES, QAgent, evaluate
 from .incident import Context, IncidentRunner
 from .lessons import NEED_CONFIRMATIONS, LessonStore
 from .llm import LLMClient
-from .scenarios import SCENARIOS, scenario_list
+from .scenarios import RANDOM, SCENARIOS, scenario_list
 from .services import graph_payload
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -127,7 +127,7 @@ def train(req: TrainRequest):
 
 @app.post("/api/incidents")
 async def start_incident(req: StartIncident):
-    if req.scenario not in SCENARIOS:
+    if req.scenario not in SCENARIOS and req.scenario != RANDOM:
         raise HTTPException(404, "Unknown scenario")
     if req.policy not in ("rl", *BASELINES):
         raise HTTPException(400, "Unknown policy")

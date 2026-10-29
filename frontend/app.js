@@ -252,6 +252,7 @@ function handle(ev, run, id) {
     case "start":
       $("inc-id").textContent = `${ev.incident} · ${ev.sev}`; setStatus("bad", "Incident · " + ev.sev);
       stage("alerts", "active", ""); cap(ev.name + ": failure spreading through the system");
+      { const cur = QUEUE.find(i => i.st === "now"); if (cur) { cur.name = ev.name; renderQueue(); } }
       break;
     case "health":
       state.health[ev.service] = ev.status; drawMap();
@@ -372,7 +373,7 @@ function handle(ev, run, id) {
 function renderQueue() {
   const q = $("queue"); q.hidden = QUEUE.length < 2; if (q.hidden) return;
   const lbl = { wait: "Waiting", now: "In progress", done: "Fixed alone", esc: "Escalated", bad: "Made worse" };
-  $("qrow").innerHTML = QUEUE.map(it => `<div class="qi q-${it.st}"><span>${esc(SCN[it.k].name)}</span><span class="s">${lbl[it.st]}${it.min ? " · " + it.min + " min" : ""}</span></div>`).join("");
+  $("qrow").innerHTML = QUEUE.map(it => `<div class="qi q-${it.st}"><span>${esc(it.name || SCN[it.k].name)}</span><span class="s">${lbl[it.st]}${it.min ? " · " + it.min + " min" : ""}</span></div>`).join("");
   const done = QUEUE.filter(i => ["done", "esc", "bad"].includes(i.st));
   $("q-sum").textContent = done.length === QUEUE.length
     ? `${QUEUE.length} incidents · ${done.reduce((a, b) => a + b.min, 0)} min total · ${QUEUE.filter(i => i.st === "done").length} fixed alone · ${QUEUE.filter(i => i.st !== "done").length} escalated`
@@ -399,11 +400,11 @@ async function loadLessons() {
 }
 function renderLessons(list) {
   if (!list.length) {
-    $("lessons").innerHTML = `<p class="l-empty">No lessons yet. Run <b>Two failures at once</b> or <b>Unfamiliar error</b>: Zoroi escalates, you tell it how you fixed it, and it learns. After ${NEED} confirmed fixes for the same pattern, it handles it alone.</p>`;
+    $("lessons").innerHTML = `<p class="l-empty">No lessons yet. Run <b>Two failures at once</b>, <b>Unfamiliar error</b> or <b>Traffic spike</b>: Zoroi escalates, you tell it how you fixed it, and it learns. After ${NEED} confirmed fixes for the same pattern, it handles it alone.</p>`;
     return;
   }
   $("lessons").innerHTML = `<table><thead><tr><th>Outage pattern</th><th>Learned fix</th><th>Confirmations</th><th class="n">Learned value</th><th>Status</th></tr></thead><tbody>` +
-    list.map(L => `<tr><td>${esc(SCN[L.scenario] ? SCN[L.scenario].name : L.key)}</td><td>${L.ok ? esc(L.label) : "none yet"}</td><td><span class="dots" aria-label="${L.ok} of ${NEED}">${Array.from({ length: NEED }, (_, i) => `<i class="${i < L.ok ? "on" : ""}"></i>`).join("")}</span>${L.wrong ? ` <span style="color:${C.muted};font-size:12px">${L.wrong} wrong</span>` : ""}</td><td class="n">${L.value > 0 ? "+" : ""}${L.value.toFixed(1)}</td><td>${L.mastered ? '<span class="sp-pill go">Acts alone</span>' : '<span class="sp-pill wait">Escalates and suggests</span>'}</td></tr>`).join("") +
+    list.map(L => `<tr><td>${esc(SCN[L.scenario] ? SCN[L.scenario].name : L.scenario || L.key)}</td><td>${L.ok ? esc(L.label) : "none yet"}</td><td><span class="dots" aria-label="${L.ok} of ${NEED}">${Array.from({ length: NEED }, (_, i) => `<i class="${i < L.ok ? "on" : ""}"></i>`).join("")}</span>${L.wrong ? ` <span style="color:${C.muted};font-size:12px">${L.wrong} wrong</span>` : ""}</td><td class="n">${L.value > 0 ? "+" : ""}${L.value.toFixed(1)}</td><td>${L.mastered ? '<span class="sp-pill go">Acts alone</span>' : '<span class="sp-pill wait">Escalates and suggests</span>'}</td></tr>`).join("") +
     "</tbody></table>";
 }
 function renderKpis() {

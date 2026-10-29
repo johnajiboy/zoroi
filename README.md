@@ -56,7 +56,7 @@ app/
   simulator.py    Gymnasium environment: one episode = one simulated outage
   agent.py        Q-learning agent, baseline policies, evaluation
   lessons.py      Learning from engineers' fixes (3 confirmations to act alone)
-  scenarios.py    Six demo outages modelled on common postmortem failure types
+  scenarios.py    Ten demo outages modelled on common postmortem failure types, plus random outages
   services.py     Service dependency graph
 frontend/         Incident console (HTML, CSS, JavaScript; no build step)
 experiments/      Training, evaluation and search comparison scripts
@@ -70,7 +70,7 @@ models/           Saved Q-table and lessons (generated)
 |---|---|---|
 | GET | `/api/meta` | Scenarios, service graph, settings |
 | GET | `/api/results` | Policy comparison on 1,000 simulated outages |
-| POST | `/api/incidents` | Start an incident `{scenario, policy, speed}` |
+| POST | `/api/incidents` | Start an incident `{scenario, policy, speed}`; scenario `random` makes a new outage each time |
 | GET | `/api/incidents/{id}/events` | Live event stream (server-sent events) |
 | POST | `/api/incidents/{id}/human` | Engineer's answer to an escalation |
 | POST | `/api/incidents/{id}/speed` | Change playback speed |

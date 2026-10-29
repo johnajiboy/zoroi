@@ -19,7 +19,7 @@ import numpy as np
 from .agent import BASELINES, QAgent
 from .lessons import NEED_CONFIRMATIONS, LessonStore
 from .llm import LLMClient, action_keywords
-from .scenarios import SCENARIOS, affected_services, build_alerts, scenario_outcome
+from .scenarios import RANDOM, SCENARIOS, affected_services, build_alerts, random_scenario, scenario_outcome
 from .search import root_cause
 from .services import NODES, is_external
 from .simulator import ACTION_LABELS, ACTIONS, DIAG_MIN, HUMAN_MIN, PATTERNS, state_index
@@ -46,6 +46,11 @@ class IncidentRunner:
     clock: float = 0.0
     _human: asyncio.Future | None = None
     task: asyncio.Task | None = None
+    spec: dict = field(init=False)
+
+    def __post_init__(self) -> None:
+        # a random outage is generated once here, so every step sees the same one
+        self.spec = random_scenario() if self.scenario == RANDOM else SCENARIOS[self.scenario]
 
     # -- plumbing ----------------------------------------------------------------
     async def emit(self, type_: str, **data) -> None:
@@ -75,21 +80,20 @@ class IncidentRunner:
 
     # -- the pipeline ------------------------------------------------------------
     async def run(self) -> None:
-        k, s, ctx = self.scenario, SCENARIOS[self.scenario], self.ctx
-        roots, ups = affected_services(k)
-        inc_id = f"INC-{4101 + list(SCENARIOS).index(k)}"
-        await self.emit("start", incident=inc_id, scenario=k, name=s["name"], sev=s["sev"])
+        k, s, ctx = self.scenario, self.spec, self.ctx
+        roots, ups = affected_services(s)
+        number = 4101 + list(SCENARIOS).index(k) if k in SCENARIOS else random.randint(4200, 4999)
+        await self.emit("start", incident=f"INC-{number}", scenario=k, name=s["name"], sev=s["sev"])
 
         # 1. failure spreads and alerts fire
-        alerts = build_alerts(k, seed=hash(self.id) % 10_000)
+        alerts = build_alerts(s, seed=hash(self.id) % 10_000)
         by_service = {a["service"]: a for a in alerts}
         for r in roots:
             await self.emit("health", service=r, status="bad", alert=by_service.get(r, {}).get("text"))
-        ext_root = any(is_external(r) for r in roots)
-        for i, u in enumerate(ups):
+        for u in ups:
             await self.pause(260)
             self.clock += 9
-            await self.emit("health", service=u, status="bad" if ext_root and i == 0 else "warn",
+            await self.emit("health", service=u, status="bad" if by_service[u]["severity"] == "critical" else "warn",
                             alert=by_service[u]["text"])
         alerting = [r for r in roots if not is_external(r)] + ups
         await self.emit("alerts_done", count=len(alerts) * 3)
@@ -142,15 +146,18 @@ class IncidentRunner:
                 human = True
                 break
 
-            label = learn["label"] if action == "learned" else ACTION_LABELS[action]
+            lesson = ctx.lessons.get(lesson_key) if action == "learned" else None
+            label = lesson["label"] if lesson else ACTION_LABELS[action]
             await self.emit("act_start", action=action, label=label, target=target)
             await self.pause(1300)
-            if action == "learned":
-                lesson = ctx.lessons.get(lesson_key)
+            if lesson and lesson["label"] == learn["label"]:
                 out = {"fixed": True, "harm": False, "minutes": learn["minutes"],
                        "note": f"Used the fix engineers confirmed {lesson['ok']} times"}
+            elif lesson:  # same pattern and service, but a different cause (possible with random outages)
+                out = {"fixed": False, "harm": False, "minutes": learn["minutes"],
+                       "note": "this outage has a different cause from the one the fix was learned on"}
             else:
-                out = scenario_outcome(k, action)
+                out = scenario_outcome(s, action)
             tried.add(action)
             self.clock += out["minutes"] * 60
             total += out["minutes"]
@@ -191,23 +198,23 @@ class IncidentRunner:
 
     # -- helpers -----------------------------------------------------------------
     def _decision_payload(self, st: int, action: str, lesson_key: str, attempt: int) -> dict:
-        ctx, learn = self.ctx, SCENARIOS[self.scenario]["learn"]
+        ctx = self.ctx
         rows = [{"action": a, "label": ACTION_LABELS[a], "value": round(float(ctx.agent.q[st, i]), 2)}
                 for i, a in enumerate(ACTIONS)]
         lesson = ctx.lessons.get(lesson_key)
         note = None
         if lesson and lesson["ok"]:
-            rows.append({"action": "learned", "label": learn["label"], "value": lesson["value"]})
+            rows.append({"action": "learned", "label": lesson["label"], "value": lesson["value"]})
             note = ("mastered" if lesson["ok"] >= NEED_CONFIRMATIONS else "partial")
         rows.sort(key=lambda r: -r["value"])
         return {
-            "action": action, "label": learn["label"] if action == "learned" else ACTION_LABELS[action],
+            "action": action, "label": lesson["label"] if action == "learned" else ACTION_LABELS[action],
             "policy": self.policy, "q_values": rows if self.policy == "rl" else [], "attempt": attempt,
             "lesson": {"ok": lesson["ok"], "need": NEED_CONFIRMATIONS, "state": note} if lesson and lesson["ok"] else None,
         }
 
     async def _escalate(self, lesson_key: str, pattern: int, reason: str) -> tuple[float, bool]:
-        ctx, s, learn = self.ctx, SCENARIOS[self.scenario], SCENARIOS[self.scenario]["learn"]
+        ctx, s, learn = self.ctx, self.spec, self.spec["learn"]
         lesson = ctx.lessons.get(lesson_key)
         learn_value = learn["action"] or "learn"
         options = [{"value": a, "label": lbl} for a, lbl in
@@ -245,8 +252,10 @@ class IncidentRunner:
         if choice:
             await self.emit("learning_start")
             await self.pause(1300)
-            new = ctx.lessons.record(lesson_key, scenario=self.scenario, label=learn["label"],
-                                     action=learn["action"], worked=right, minutes=learn["minutes"])
+            # random outages have no fixed key, so their lessons are listed by outage name
+            new = ctx.lessons.record(lesson_key, scenario=s["name"] if self.scenario == RANDOM else self.scenario,
+                                     label=learn["label"], action=learn["action"], worked=right,
+                                     minutes=learn["minutes"])
             if right and learn["action"]:  # known action: also update the Q-table directly
                 a = ACTIONS.index(learn["action"])
                 reward = 20 - 0.5 * learn["minutes"]
