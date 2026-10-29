@@ -2,9 +2,6 @@
 
 **Act or Escalate: an AI agent for cloud incident response using LLMs, A\* search and reinforcement learning.**
 
-MSc Artificial Intelligence with Data Analytics, Teesside University
-Module: CIS4049-N Artificial Intelligence Foundations
-Author: John Oluwapelumi Ajiboye
 
 ---
 
