@@ -436,6 +436,11 @@ function sync() {
   $("run").lastChild.textContent = n > 1 ? `Run ${n} incidents` : "Run incident";
   press("#pol button", state.pol); press("#spd button", String(state.speed));
 }
+/* fade the outage list's bottom edge only while more of it is hidden below */
+function listFade() {
+  const el = $("scns");
+  el.classList.toggle("more", el.scrollHeight - el.scrollTop - el.clientHeight > 2);
+}
 function bindControls() {
   document.querySelectorAll(".scn").forEach(b => b.addEventListener("click", () => {
     if (state.running) return;
@@ -451,6 +456,8 @@ function bindControls() {
     if (state.incident) api(`/api/incidents/${state.incident}/speed`, { method: "POST", body: JSON.stringify({ speed: state.speed }) }).catch(() => {});
   }));
   $("run").addEventListener("click", run);
+  $("scns").addEventListener("scroll", listFade, { passive: true });
+  addEventListener("resize", listFade);
   $("reset-l").addEventListener("click", async () => { if (state.running) return; await api("/api/lessons", { method: "DELETE" }); loadLessons(); });
 }
 
@@ -468,7 +475,7 @@ async function boot() {
     $("scns").innerHTML = meta.scenarios.map(s => `<button class="scn" id="scn-${s.key}" data-v="${s.key}"><span class="ck" aria-hidden="true"></span><span class="t"><b>${esc(s.name)}</b><span>${esc(s.hint)}</span></span><span class="d" title="${s.clear ? "Clear cause" : "Uncertain"}" style="background:${s.clear ? C.ok : C.warn}"></span></button>`).join("");
     $("llm-env").textContent = "LLM: " + meta.llm_provider;
     $("rail-note").textContent = `The agent was trained on ${meta.train_episodes.toLocaleString()} simulated outages.`;
-    bindControls(); sync(); resetView();
+    bindControls(); sync(); resetView(); listFade();
     RESULTS = await api("/api/results"); renderResults();
     loadLessons();
   } catch (e) {
