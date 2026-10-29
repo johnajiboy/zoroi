@@ -294,7 +294,8 @@ function handle(ev, run, id) {
         const lnote = L ? (L.state === "mastered"
           ? `<br><span style="color:${C.ok}">${L.ok} confirmed human fixes for this pattern, so Zoroi now acts alone.</span>`
           : `<br>${muted(`The learned fix scores well, but has only ${L.ok} of ${L.need} confirmations, so Zoroi still escalates and suggests it.`)}`) : "";
-        think("RL", C.rl, `${ev.attempt ? "First fix did not work. " : ""}Learned values for this situation:${qBars(ev.q_values, ev.action)}${lnote}`);
+        const unote = ev.unseen ? `<br><span style="color:${C.warn}">Never seen in training, escalating.</span>` : "";
+        think("RL", C.rl, `${ev.attempt ? "First fix did not work. " : ""}Learned values for this situation:${qBars(ev.q_values, ev.action)}${unote}${lnote}`);
       } else {
         think("RULE", C.muted, `${esc(POLICY_NAMES[state.pol])} picks <b>${esc(ev.label)}</b> without weighing the situation.`);
       }

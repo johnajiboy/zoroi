@@ -24,6 +24,7 @@ ACTION_MIN = {"restart": 3, "rollback": 5, "scale": 6, "failover": 2}
 HUMAN_MIN = 25      # minutes for an on-call engineer to fix it
 CLEANUP_MIN = 35    # extra minutes when an action makes things worse
 DIAG_MIN = 2        # minutes for the agent to read alerts and diagnose
+UNKNOWN_HARM_RATE = 0.3  # chance that acting on an unfamiliar outage makes it worse
 N_STATES = len(PATTERNS) * 4
 N_ACTIONS = len(ACTIONS)
 
@@ -38,6 +39,22 @@ OUTCOMES = {
 
 def state_index(pattern: int, confident: int, attempt: int) -> int:
     return pattern * 4 + confident * 2 + attempt
+
+
+def action_outcome(outage_type: str, action: str, rng, diagnosis_right: bool = True) -> dict:
+    """What one automatic action does to an outage.
+
+    The single source of truth for action effects: training uses it, and so do the
+    random outages in the live demo. `rng` is anything with a .random() method.
+    """
+    if not diagnosis_right:  # acted on the wrong service
+        return {"fixed": False, "minutes": ACTION_MIN[action] + CLEANUP_MIN, "harm": True}
+    if outage_type == "unknown":
+        if rng.random() < UNKNOWN_HARM_RATE:
+            return {"fixed": False, "minutes": ACTION_MIN[action] + CLEANUP_MIN, "harm": True}
+        return {"fixed": False, "minutes": ACTION_MIN[action], "harm": False}
+    fixed, minutes, harm = OUTCOMES[outage_type][action]
+    return {"fixed": bool(fixed), "minutes": minutes + (CLEANUP_MIN if harm else 0), "harm": bool(harm)}
 
 
 def reward_for(outcome: dict) -> float:
@@ -84,7 +101,8 @@ class OutageEnv(gym.Env):
     def _sample_outage(self) -> Outage:
         r = self.np_random
         t = OUTAGE_TYPES[int(r.integers(len(OUTAGE_TYPES)))]
-        confident = 1 if t == "unknown" else int(r.random() >= self.uncertain_rate)
+        # unfamiliar outages can be unclear too (e.g. two failures at once with unknown alerts)
+        confident = int(r.random() >= self.uncertain_rate)
         right = True if confident else bool(r.random() < 0.5)
         return Outage(t, OUTAGE_TYPES.index(t), confident, right)
 
@@ -92,15 +110,7 @@ class OutageEnv(gym.Env):
         o = self.outage
         if action == "escalate":
             return {"fixed": True, "minutes": HUMAN_MIN, "harm": False, "human": True}
-        if not o.diagnosis_right:  # acted on the wrong service
-            return {"fixed": False, "minutes": ACTION_MIN[action] + CLEANUP_MIN, "harm": True, "human": False}
-        if o.type == "unknown":
-            if self.np_random.random() < 0.3:
-                return {"fixed": False, "minutes": ACTION_MIN[action] + CLEANUP_MIN, "harm": True, "human": False}
-            return {"fixed": False, "minutes": ACTION_MIN[action], "harm": False, "human": False}
-        fixed, minutes, harm = OUTCOMES[o.type][action]
-        return {"fixed": bool(fixed), "minutes": minutes + (CLEANUP_MIN if harm else 0), "harm": bool(harm),
-                "human": False}
+        return {**action_outcome(o.type, action, self.np_random, o.diagnosis_right), "human": False}
 
     def valid_actions(self) -> list[int]:
         """An automatic action is not repeated within one outage; escalating is always allowed."""

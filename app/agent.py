@@ -10,6 +10,8 @@ import numpy as np
 
 from .simulator import ACTIONS, N_ACTIONS, N_STATES, OutageEnv
 
+ESCALATE = ACTIONS.index("escalate")
+
 # A policy maps (state index, list of valid action indices, rng) to an action index.
 Policy = Callable[[int, list[int], np.random.Generator], int]
 
@@ -19,11 +21,20 @@ RUNBOOK = ["rollback", "scale", "restart", "failover", "restart"]  # per pattern
 class QAgent:
     def __init__(self, alpha: float = 0.1, gamma: float = 0.9):
         self.q = np.zeros((N_STATES, N_ACTIONS))
+        self.visits = np.zeros(N_STATES, dtype=int)  # how often each state was seen in training
         self.alpha = alpha
         self.gamma = gamma
 
     # -- acting ------------------------------------------------------------------
+    def unseen(self, state: int) -> bool:
+        """True if training never reached this state, so its Q-values mean nothing."""
+        return bool(self.visits[state] == 0)
+
     def greedy(self, state: int, valid: list[int]) -> int:
+        # safety rule: all-zero Q-values would pick the first action (restart) by a tie,
+        # so in a state never seen in training the agent hands over instead
+        if self.unseen(state) and ESCALATE in valid:
+            return ESCALATE
         return max(valid, key=lambda a: (self.q[state, a], -a))
 
     def act(self, state: int, valid: list[int], rng: np.random.Generator, epsilon: float = 0.0) -> int:
@@ -53,6 +64,7 @@ class QAgent:
             total_r, done, info = 0.0, False, {}
             while not done:
                 a = self.act(s, env.valid_actions(), rng, epsilon)
+                self.visits[s] += 1
                 s2, r, done, _, info = env.step(a)
                 self.update(s, a, r, None if done else s2)
                 total_r += r
@@ -72,12 +84,18 @@ class QAgent:
     # -- persistence -------------------------------------------------------------
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"actions": ACTIONS, "q": self.q.round(4).tolist()}, indent=1))
+        path.write_text(json.dumps({"actions": ACTIONS, "q": self.q.round(4).tolist(),
+                                    "visits": self.visits.tolist()}, indent=1))
 
     @classmethod
     def load(cls, path: Path) -> "QAgent":
+        data = json.loads(path.read_text())
         agent = cls()
-        agent.q = np.array(json.loads(path.read_text())["q"], dtype=float)
+        agent.q = np.array(data["q"], dtype=float)
+        if "visits" in data:
+            agent.visits = np.array(data["visits"], dtype=int)
+        else:  # older Q-table without visit counts: treat all-zero rows as never seen
+            agent.visits = (agent.q != 0).any(axis=1).astype(int)
         return agent
 
 

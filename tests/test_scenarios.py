@@ -9,7 +9,7 @@ from app.scenarios import (FAILABLE, MODES, ORDER, RANDOM, SCENARIOS, _modes_for
                            scenario_list, scenario_outcome)
 from app.search import root_cause
 from app.services import NODES, is_external, upstream
-from app.simulator import ACTIONS
+from app.simulator import ACTION_MIN, ACTIONS, CLEANUP_MIN, OUTCOMES, UNKNOWN_HARM_RATE
 
 AUTO_ACTIONS = [a for a in ACTIONS if a != "escalate"]
 PATTERN_OF_TYPE = {"release": "recent release", "db": "database overload", "leak": "memory climbing",
@@ -59,7 +59,7 @@ def test_random_outage_is_reproducible_and_varied():
         if len(o["roots"]) == 2:
             a, b = o["roots"]
             assert a not in upstream(b) and b not in upstream(a)
-            assert not o["outcomes"] and scenario_outcome(o, "restart")["harm"]
+            assert scenario_outcome(o, "restart")["harm"]
 
 
 def test_random_outage_alerts_match_its_failure_mode():
@@ -113,3 +113,31 @@ def test_learned_fix_only_works_for_the_cause_it_was_learned_on(tmp_path):
     other.spec = {**cert, "learn": {**cert["learn"], "label": "Something else"}}
     act = next(e for e in _run_runner(other) if e["type"] == "act_result")
     assert act["action"] == "learned" and not act["fixed"]
+
+
+def test_random_outages_use_the_simulator_outcomes():
+    assert all("outcomes" not in m for m in MODES.values())  # no separate tables to drift
+    rng = random.Random(9)
+    unknown_harm = unknown_runs = 0
+    for _ in range(400):
+        o = random_scenario(rng)
+        for a in AUTO_ACTIONS:
+            out = scenario_outcome(o, a, rng)
+            if o["type"] == "double":  # treated as a wrong diagnosis
+                assert out["harm"] and out["minutes"] == ACTION_MIN[a] + CLEANUP_MIN
+            elif o["type"] == "unknown":
+                assert not out["fixed"] and out["minutes"] == ACTION_MIN[a] + (CLEANUP_MIN if out["harm"] else 0)
+                unknown_runs += 1
+                unknown_harm += out["harm"]
+            else:
+                fixed, minutes, harm = OUTCOMES[o["type"]][a]
+                assert (out["fixed"], out["harm"]) == (bool(fixed), bool(harm))
+                assert out["minutes"] == minutes + (CLEANUP_MIN if harm else 0)
+    assert abs(unknown_harm / unknown_runs - UNKNOWN_HARM_RATE) < 0.06
+
+
+def test_unseen_state_shows_in_the_decision_event(tmp_path):
+    # an untrained agent has seen no states, so the safety rule makes it escalate
+    ctx = Context(agent=QAgent(), lessons=LessonStore(tmp_path / "lessons.json"), llm=LLMClient("mock"))
+    decision = next(e for e in _run_runner(IncidentRunner("release", "rl", 8, ctx)) if e["type"] == "decision")
+    assert decision["action"] == "escalate" and decision["unseen"]

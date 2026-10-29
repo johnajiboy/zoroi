@@ -210,6 +210,8 @@ class IncidentRunner:
         return {
             "action": action, "label": lesson["label"] if action == "learned" else ACTION_LABELS[action],
             "policy": self.policy, "q_values": rows if self.policy == "rl" else [], "attempt": attempt,
+            # the safety rule in QAgent.greedy fired: this state was never seen in training
+            "unseen": self.policy == "rl" and action == "escalate" and ctx.agent.unseen(st),
             "lesson": {"ok": lesson["ok"], "need": NEED_CONFIRMATIONS, "state": note} if lesson and lesson["ok"] else None,
         }
 

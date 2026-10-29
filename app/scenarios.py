@@ -13,6 +13,7 @@ from __future__ import annotations
 import random
 
 from .services import CALLERS, NODES, is_external, upstream
+from .simulator import ACTION_MIN, CLEANUP_MIN, action_outcome
 
 SCENARIOS: dict[str, dict] = {
     "release": {
@@ -155,12 +156,13 @@ ORDER = ["release", "config", "db", "disk", "leak", "provider", "dns", "spike", 
 # Failure modes a random outage can use. Each one is the generic form of a named
 # scenario above; {svc} and the other fields are filled in when the outage is made.
 # A mode only applies to the kind of service it makes sense for (see _modes_for).
+# Modes have no outcome table: what an action does comes from the simulator's
+# rules (action_outcome), the same rules the agent was trained on.
 _GENERIC_NOTES = {"rollback": "nothing recent to roll back", "failover": "no backup for {svc}"}
 MODES: dict[str, dict] = {
     "release": {
         "name": "Bad release", "type": "release", "sev": "SEV-2",
         "alert": "deploy {svc} v2.{minor}.0 completed 14:0{mm}:{ss}; HTTP 5xx {pct}% since deploy",
-        "outcomes": SCENARIOS["release"]["outcomes"],
         "notes": {"rollback": "errors back to normal", "restart": "errors return within a minute",
                   "scale": "more servers, same bug", "failover": "no backup for {svc}"},
         "cause": "a bug in {svc} v2.{minor}.0", "human": "rolls back {svc} to the previous version",
@@ -170,7 +172,6 @@ MODES: dict[str, dict] = {
     "config": {
         "name": "Bad config change", "type": "release", "sev": "SEV-2",
         "alert": "config deploy {svc} settings rev {rev} completed 14:0{mm}:{ss}; HTTP 502 {pct}% since change",
-        "outcomes": SCENARIOS["config"]["outcomes"],
         "notes": {"rollback": "config back to the previous revision", "restart": "pods reload the same bad config",
                   "scale": "more servers, same bad config", "failover": "backup uses the same config"},
         "cause": "a bad setting in {svc} config rev {rev}", "human": "reverts the {svc} config change",
@@ -181,7 +182,6 @@ MODES: dict[str, dict] = {
     "leak": {
         "name": "Memory leak", "type": "leak", "sev": "SEV-3",
         "alert": "{svc} memory {mem}% of limit, GC pauses {gc}s, last deploy {days} days ago",
-        "outcomes": SCENARIOS["leak"]["outcomes"],
         "notes": {"restart": "memory back to 40%", "scale": "extra pods hold it, leak remains", **_GENERIC_NOTES},
         "cause": "a memory leak in {svc}", "human": "restarts {svc} pods", "suggest": "restart {svc} pods",
         "follow": "alert at 80% memory and find the leak in {svc}",
@@ -190,8 +190,7 @@ MODES: dict[str, dict] = {
     "spike": {
         "name": "Traffic spike", "type": "unknown", "sev": "SEV-2",
         "alert": "{svc} requests {rps},{rps3}00/s ({x}x normal, {bot}% from one crawler), CPU 99%",
-        "outcomes": SCENARIOS["spike"]["outcomes"],
-        "notes": {"restart": "restarting halved capacity and {svc} went fully down",
+        "notes": {"restart": "pods restarted, but the crawler traffic kept coming",
                   "scale": "new pods filled up within minutes", **_GENERIC_NOTES},
         "cause": "a traffic spike from one crawler overloading {svc}", "human": "rate-limits the crawler at the gateway",
         "suggest": "rate-limit the crawler at api-gateway", "follow": "add per-client rate limits on {svc}",
@@ -200,7 +199,6 @@ MODES: dict[str, dict] = {
     "cert": {
         "name": "Expired certificate", "type": "unknown", "sev": "SEV-1",
         "alert": "{svc} TLS handshake failed: x509 certificate has expired",
-        "outcomes": SCENARIOS["cert"]["outcomes"],
         "notes": {"restart": "same TLS error after restart", "rollback": "same error on the old version",
                   "scale": "new pods fail the same way", "failover": "backup uses the same certificate"},
         "cause": "an expired TLS certificate on {svc}", "human": "renews the certificate",
@@ -210,7 +208,6 @@ MODES: dict[str, dict] = {
     "db": {
         "name": "Database overload", "type": "db", "sev": "SEV-1",
         "alert": "{svc} CPU {cpu}%, active connections {conn}/{conn}, query p95 {p95}s",
-        "outcomes": SCENARIOS["db"]["outcomes"],
         "notes": {"scale": "read replica added, p95 back to normal",
                   "restart": "dropped every live connection; requests failed for 8 min", **_GENERIC_NOTES},
         "cause": "{svc} running out of connections", "human": "adds a read replica",
@@ -220,7 +217,6 @@ MODES: dict[str, dict] = {
     "disk": {
         "name": "Disk full", "type": "unknown", "sev": "SEV-2",
         "alert": "{svc} disk /data 100% full: no space left on device; writes rejected",
-        "outcomes": SCENARIOS["disk"]["outcomes"],
         "notes": {"restart": "came back with the disk still full", "scale": "new node added, old data still full",
                   **_GENERIC_NOTES},
         "cause": "old data filling the {svc} disk", "human": "deletes expired data and lowers retention",
@@ -230,7 +226,6 @@ MODES: dict[str, dict] = {
     "cache": {
         "name": "Cache out of memory", "type": "leak", "sev": "SEV-2",
         "alert": "{svc} memory {mem}% of maxmemory, evictions failing, clients refused",
-        "outcomes": {"restart": (1, 2, 0), "scale": (1, 7, 0), "rollback": (0, 5, 0), "failover": (0, 2, 0)},
         "notes": {"restart": "cache restarted empty and is warming up", "scale": "bigger cache node holds it",
                   "rollback": "nothing recent to roll back", "failover": "no cache replica"},
         "cause": "{svc} running out of memory", "human": "restarts {svc} and raises maxmemory",
@@ -241,7 +236,7 @@ MODES: dict[str, dict] = {
     "provider": {
         "name": "Provider outage", "type": "provider", "sev": "SEV-1",
         "alert": "{caller} upstream {svc} timeouts after 30s (no internal errors)",
-        "outcomes": SCENARIOS["provider"]["outcomes"], "notes": SCENARIOS["provider"]["notes"],
+        "notes": SCENARIOS["provider"]["notes"],
         "cause": "an outage at {svc}", "human": "fails over to the backup provider",
         "suggest": "fail over to the backup provider", "follow": "test failover monthly",
         "learn": SCENARIOS["provider"]["learn"],
@@ -249,7 +244,7 @@ MODES: dict[str, dict] = {
     "dns": {
         "name": "Provider DNS failure", "type": "provider", "sev": "SEV-1",
         "alert": "{caller} DNS timeout resolving api.{svc}.com (SERVFAIL); upstream {svc} unreachable",
-        "outcomes": SCENARIOS["dns"]["outcomes"], "notes": SCENARIOS["dns"]["notes"],
+        "notes": SCENARIOS["dns"]["notes"],
         "cause": "a DNS outage for {svc}", "human": "fails over to the backup provider",
         "suggest": "fail over to the backup provider", "follow": "cache provider DNS records",
         "learn": SCENARIOS["dns"]["learn"],
@@ -290,7 +285,8 @@ def _one_failure(node: str, mode: str, rng: random.Random) -> dict:
               "cpu": rng.randint(94, 99), "conn": rng.choice([200, 300, 500]), "p95": f"{rng.uniform(2, 6):.1f}"}
     m = MODES[mode]
     return {"node": node, "mode": mode, "name": m["name"], "type": m["type"], "sev": m["sev"],
-            "root_alert": _fill(m["alert"], fields), "outcomes": m["outcomes"], "notes": _fill(m["notes"], fields),
+            "root_alert": _fill(m["alert"], fields), "notes": _fill(m["notes"], fields),
+            "harm_note": f"acting on {fields['svc']} without knowing the cause made the outage worse",
             **{k: _fill(m[k], fields) for k in ("cause", "human", "suggest", "follow")}, "learn": m["learn"]}
 
 
@@ -315,8 +311,9 @@ def random_scenario(rng: random.Random | None = None) -> dict:
         p = parts[0]
         mode = p["name"][0].lower() + p["name"][1:]  # keep acronyms like DNS
         return {"key": RANDOM, "name": f"Random: {mode} on {NODES[p['node']]['label']}",
-                "hint": "", "roots": roots, **{k: p[k] for k in ("type", "sev", "root_alert", "outcomes", "notes",
-                                                                 "cause", "human", "suggest", "follow", "learn")}}
+                "hint": "", "roots": roots, "simulated": True,
+                **{k: p[k] for k in ("type", "sev", "root_alert", "notes", "harm_note", "cause", "human",
+                                     "suggest", "follow", "learn")}}
     a, b = parts
     label_b = b["learn"]["label"]
     return {
@@ -324,7 +321,7 @@ def random_scenario(rng: random.Random | None = None) -> dict:
         "hint": "", "roots": roots, "type": "double", "sev": "SEV-1",
         "root_alert": f"{a['root_alert']}; {b['root_alert']}",
         "root_alerts": {a["node"]: a["root_alert"], b["node"]: b["root_alert"]},
-        "outcomes": {},  # one automatic action cannot fix two failures
+        "simulated": True,  # acting on one of two failures counts as a wrong diagnosis
         "harm_note": f"acted on one failure only; with {NODES[a['node']]['svc']} and {NODES[b['node']]['svc']} "
                      "both down, the outage spread",
         "notes": {}, "cause": f"{a['cause']} and {b['cause']} together", "human": f"{a['human']}, then {b['human']}",
@@ -382,18 +379,22 @@ def build_alerts(scenario: str | dict, seed: int | None = None) -> list[dict]:
     return alerts
 
 
-def scenario_outcome(scenario: str | dict, action: str) -> dict:
-    """What an automatic action does in this scenario."""
+def scenario_outcome(scenario: str | dict, action: str, rng: random.Random | None = None) -> dict:
+    """What an automatic action does in this scenario.
+
+    Named scenarios use their own hand-written table. Random outages use the
+    simulator's rules, with two failures at once treated as a wrong diagnosis.
+    """
     s = get_scenario(scenario)
+    if s.get("simulated"):
+        out = action_outcome(s["type"], action, rng or random.Random(), diagnosis_right=s["type"] != "double")
+        return {**out, "note": s["harm_note"] if out["harm"] else s["notes"][action]}
     if not s["outcomes"]:  # two failures at once: any single action makes it worse
-        return {"fixed": False, "minutes": _ACTION_MIN[action] + CLEANUP_MIN, "harm": True, "note": s["harm_note"]}
+        return {"fixed": False, "minutes": ACTION_MIN[action] + CLEANUP_MIN, "harm": True, "note": s["harm_note"]}
     fixed, minutes, harm = s["outcomes"][action]
     return {"fixed": bool(fixed), "minutes": minutes + (CLEANUP_MIN if harm else 0), "harm": bool(harm),
             "note": s["notes"][action]}
 
-
-_ACTION_MIN = {"restart": 3, "rollback": 5, "scale": 6, "failover": 2}
-CLEANUP_MIN = 35
 
 
 def scenario_list() -> list[dict]:
