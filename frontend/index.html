@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Zoroi Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<div class="app">
+  <aside class="card rail">
+    <div class="brand">
+      <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><rect width="34" height="34" rx="10" fill="#162030" stroke="#223044"/><circle cx="12" cy="17" r="4" fill="#6FB6FF"/><circle cx="22" cy="11" r="3" fill="#B39BFF"/><circle cx="22" cy="23" r="3" fill="#F0B86E"/><path d="M15.5 15.5 L19.5 12.5 M15.5 18.5 L19.5 21.5" stroke="#8A98AE" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <div><h1>Zoroi</h1><small>Act or escalate</small></div>
+    </div>
+    <div><div class="lab-row"><div class="lab" id="lab-scn">Outages to simulate</div><span><button class="link" id="sel-all">All</button> · <button class="link" id="sel-one">One</button></span></div><div class="scns" role="group" aria-labelledby="lab-scn" id="scns"></div></div>
+    <div><div class="lab" id="lab-pol">Responder</div>
+      <div class="seg" role="group" aria-labelledby="lab-pol" id="pol">
+        <button id="p-rl" data-v="rl">Zoroi</button><button id="p-act" data-v="act">Always act</button><button id="p-rule" data-v="rule">Restart first</button>
+      </div></div>
+    <div><div class="lab" id="lab-spd">Speed</div>
+      <div class="seg" role="group" aria-labelledby="lab-spd" id="spd">
+        <button id="s1" data-v="1">1×</button><button id="s2" data-v="2">2×</button><button id="s4" data-v="4">4×</button>
+      </div></div>
+    <button class="run" id="run"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1 L11 6 L2 11 Z" fill="currentColor"/></svg>Run incident</button>
+    <p class="note" id="rail-note">Connecting to the agent…</p>
+  </aside>
+
+  <div class="main">
+    <div class="card top">
+      <h2>Incident console</h2><span class="env">shop-prod · simulated</span><span class="env" id="llm-env">LLM: …</span><span class="sp"></span>
+      <span class="clock" id="clock">14:07:00</span><span class="pill ok" id="status">Monitoring</span>
+    </div>
+
+    <section class="card" id="queue" aria-labelledby="h-queue" hidden>
+      <div class="ph"><h3 id="h-queue">Incident queue</h3><span id="q-sum"></span></div>
+      <div class="qrow" id="qrow"></div>
+    </section>
+
+    <section class="card flow-card" aria-labelledby="h-flow">
+      <div class="fhead"><h3 id="h-flow">Agent flow</h3><span class="cap" id="flow-cap">Watching 15 services. Pick one or more outages and press Run.</span></div>
+      <div class="flow-wrap"><svg id="flow" viewBox="0 30 1100 270" role="img" aria-label="Live flow of the agent: alerts, LLM, search, reinforcement learning, then act or escalate, then resolved"></svg></div>
+    </section>
+
+    <div class="grid2">
+      <section class="card" aria-labelledby="h-map">
+        <div class="ph"><h3 id="h-map">Service map</h3><span>Arrows point to what a service depends on · purple = considered by A*</span></div>
+        <div class="map-wrap"><svg id="map" viewBox="0 10 980 510" role="img" aria-label="Service dependency map"></svg></div>
+        <div class="legend"><span><i style="background:var(--ok)"></i>Healthy</span><span><i style="background:var(--warn)"></i>Degraded</span><span><i style="background:var(--bad)"></i>Down</span><span><i style="background:var(--search)"></i>Checked by search</span></div>
+      </section>
+      <section class="card" aria-labelledby="h-think">
+        <div class="ph"><h3 id="h-think">What the agent is thinking</h3><span id="inc-id">No incident</span></div>
+        <ul class="think" id="think"><li class="empty">Each step appears here as the agent works.</li></ul>
+      </section>
+    </div>
+
+    <section class="card" aria-labelledby="h-learn">
+      <div class="ph"><h3 id="h-learn">Learned from engineers</h3><button class="ghost" id="reset-l" style="padding:5px 10px;font-size:12px">Reset lessons</button></div>
+      <div class="tbl-wrap" id="lessons"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-res">
+      <div class="ph"><h3 id="h-res">Results</h3><span>Tested on 1,000 new simulated outages</span></div>
+      <div class="res" id="kpis"></div>
+      <div class="tbl-wrap"><table id="agg"></table></div>
+    </section>
+  </div>
+  <footer>Zoroi: an LLM reads alerts, A* search finds the root cause, and a Q-learning agent decides whether to act or escalate to a human. When it escalates, the engineer's fix is fed back so it learns. Services and outages are simulated; every decision comes from the Python agent running behind this page.</footer>
+</div>
+
+<div class="esc" id="esc" hidden>
+  <div class="esc-box" role="dialog" aria-modal="true" aria-labelledby="esc-h">
+    <h4 id="esc-h">Escalated to the on-call engineer</h4>
+    <div class="who" id="esc-who"></div>
+    <div id="esc-a">
+      <p id="esc-why"></p>
+      <div class="ev" id="esc-ev"></div>
+      <div class="row"><button class="btn-warn" id="esc-approve">Approve suggested fix</button><button class="ghost" id="esc-take">Take over manually</button></div>
+    </div>
+    <div id="esc-b" hidden>
+      <p>What fixed it? Zoroi learns from your answer.</p>
+      <div class="opts" role="radiogroup" aria-label="Fix used" id="opts"></div>
+      <label class="lab" for="esc-note">Or describe what you did</label>
+      <textarea id="esc-note" rows="2" placeholder="e.g. renewed the expired certificate"></textarea>
+      <div class="row"><button class="btn-warn" id="esc-log" disabled>Log fix and close</button></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
