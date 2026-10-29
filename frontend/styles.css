@@ -150,6 +150,14 @@ tr.me td{color:var(--accent);font-weight:600}
 .sp-pill.wait{color:var(--warn);background:rgba(240,184,110,.12)}
 .sp-pill.go{color:var(--ok);background:rgba(111,215,168,.12)}
 .l-empty{padding:14px 16px;color:var(--muted);margin:0;max-width:75ch}
+/* phone width: each lesson becomes a stacked card with a label beside each value */
+@media (max-width:640px){
+  table.lessons thead{display:none}
+  table.lessons tr{display:block;padding:8px 0;border-top:1px solid var(--line)}
+  table.lessons td{display:flex;justify-content:space-between;align-items:center;gap:12px;border:0;padding:4px 16px;text-align:right}
+  table.lessons td::before{content:attr(data-label);font-family:var(--font-body);color:var(--muted);font-size:11px;letter-spacing:.07em;text-transform:uppercase;font-weight:600;text-align:left;flex:none}
+  table.lessons td:first-child{font-weight:600}
+}
 .scn .ck{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--faint);flex:none;display:grid;place-items:center}
 .scn[aria-pressed="true"] .ck{background:var(--accent);border-color:var(--accent)}
 .scn[aria-pressed="true"] .ck::after{content:"";width:8px;height:4px;border:2px solid #06121F;border-top:0;border-right:0;transform:rotate(-45deg) translate(1px,-1px)}

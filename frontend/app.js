@@ -404,8 +404,8 @@ function renderLessons(list) {
     $("lessons").innerHTML = `<p class="l-empty">No lessons yet. Run <b>Two failures at once</b>, <b>Unfamiliar error</b> or <b>Traffic spike</b>: Zoroi escalates, you tell it how you fixed it, and it learns. After ${NEED} confirmed fixes for the same pattern, it handles it alone.</p>`;
     return;
   }
-  $("lessons").innerHTML = `<table><thead><tr><th>Outage pattern</th><th>Learned fix</th><th>Confirmations</th><th class="n">Learned value</th><th>Status</th></tr></thead><tbody>` +
-    list.map(L => `<tr><td>${esc(SCN[L.scenario] ? SCN[L.scenario].name : L.scenario || L.key)}</td><td>${L.ok ? esc(L.label) : "none yet"}</td><td><span class="dots" aria-label="${L.ok} of ${NEED}">${Array.from({ length: NEED }, (_, i) => `<i class="${i < L.ok ? "on" : ""}"></i>`).join("")}</span>${L.wrong ? ` <span style="color:${C.muted};font-size:12px">${L.wrong} wrong</span>` : ""}</td><td class="n">${L.value > 0 ? "+" : ""}${L.value.toFixed(1)}</td><td>${L.mastered ? '<span class="sp-pill go">Acts alone</span>' : '<span class="sp-pill wait">Escalates and suggests</span>'}</td></tr>`).join("") +
+  $("lessons").innerHTML = `<table class="lessons"><thead><tr><th>Outage pattern</th><th>Learned fix</th><th>Confirmations</th><th class="n">Learned value</th><th>Status</th></tr></thead><tbody>` +
+    list.map(L => `<tr><td data-label="Outage pattern">${esc(SCN[L.scenario] ? SCN[L.scenario].name : L.scenario || L.key)}</td><td data-label="Learned fix">${L.ok ? esc(L.label) : "none yet"}</td><td data-label="Confirmations"><span class="dots" aria-label="${L.ok} of ${NEED}">${Array.from({ length: NEED }, (_, i) => `<i class="${i < L.ok ? "on" : ""}"></i>`).join("")}</span>${L.wrong ? ` <span style="color:${C.muted};font-size:12px">${L.wrong} wrong</span>` : ""}</td><td class="n" data-label="Learned value">${L.value > 0 ? "+" : ""}${L.value.toFixed(1)}</td><td data-label="Status">${L.mastered ? '<span class="sp-pill go">Acts alone</span>' : '<span class="sp-pill wait">Escalates and suggests</span>'}</td></tr>`).join("") +
     "</tbody></table>";
 }
 function renderKpis() {
