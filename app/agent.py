@@ -51,9 +51,12 @@ class QAgent:
         self.q[s, a] += self.alpha * (target - self.q[s, a])
 
     def train(self, episodes: int = 4000, seed: int = 2026, eps_decay_episodes: int = 2600,
-              window: int = 100) -> list[dict]:
-        """Train on simulated outages. Returns the learning curve (one point per `window` episodes)."""
-        env = OutageEnv()
+              window: int = 100, env: OutageEnv | None = None) -> list[dict]:
+        """Train on simulated outages. Returns the learning curve (one point per `window` episodes).
+
+        Pass `env` to train under different reward settings (see experiments/sensitivity.py).
+        """
+        env = env or OutageEnv()
         rng = np.random.default_rng(seed)
         env.reset(seed=seed)
         curve: list[dict] = []
@@ -132,9 +135,9 @@ POLICY_NAMES = {"rl": "Zoroi (RL agent)", "act": "Always act", "rule": "Restart 
                 "escalate": "Always escalate", "random": "Random"}
 
 
-def evaluate(policy: Policy, episodes: int = 1000, seed: int = 777) -> dict:
+def evaluate(policy: Policy, episodes: int = 1000, seed: int = 777, env: OutageEnv | None = None) -> dict:
     """Run a policy on unseen simulated outages."""
-    env = OutageEnv()
+    env = env or OutageEnv()
     env.reset(seed=seed)
     rng = np.random.default_rng(seed)
     minutes, harm, human, alone = [], 0, 0, 0

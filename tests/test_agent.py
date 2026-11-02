@@ -56,3 +56,23 @@ def test_state_with_zero_visits_escalates(tmp_path):
     agent.save(tmp_path / "q.json")
     loaded = QAgent.load(tmp_path / "q.json")
     assert loaded.visits[s] == 1 and loaded.visits.shape == (N_STATES,)
+
+
+def test_reward_values_are_env_parameters():
+    from app.simulator import HARM_PENALTY, HUMAN_MIN, reward_for
+    env = OutageEnv()
+    assert (env.harm_penalty, env.human_min) == (HARM_PENALTY, HUMAN_MIN) == (25, 25)
+    harm = {"fixed": False, "minutes": 10, "harm": True}
+    assert reward_for(harm) == -30 and reward_for(harm, 50) == -55
+    env = OutageEnv(human_min=40)
+    env.reset(seed=1)
+    _, reward, done, _, info = env.step(ACTIONS.index("escalate"))
+    assert done and reward == 0 and info["minutes"] == 2 + 40
+
+
+def test_sensitivity_script_runs(tmp_path):
+    from experiments import sensitivity
+    rows = sensitivity.main(["--episodes", "200", "--seeds", "2", "--eval-episodes", "50", "--out", str(tmp_path)])
+    assert len(rows) == 6 and sum(r["default"] for r in rows) == 2
+    assert (tmp_path / "reward_sensitivity.csv").exists()
+    assert {"avg_recovery_min_mean", "made_worse_pct_std", "escalated_pct_mean"} <= set(rows[0])

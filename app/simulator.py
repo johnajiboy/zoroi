@@ -22,6 +22,7 @@ ACTION_LABELS = {"restart": "Restart", "rollback": "Roll back", "scale": "Scale 
                  "escalate": "Escalate to human"}
 ACTION_MIN = {"restart": 3, "rollback": 5, "scale": 6, "failover": 2}
 HUMAN_MIN = 25      # minutes for an on-call engineer to fix it
+HARM_PENALTY = 25   # reward penalty when an action makes things worse
 CLEANUP_MIN = 35    # extra minutes when an action makes things worse
 DIAG_MIN = 2        # minutes for the agent to read alerts and diagnose
 UNKNOWN_HARM_RATE = 0.3  # chance that acting on an unfamiliar outage makes it worse
@@ -57,10 +58,10 @@ def action_outcome(outage_type: str, action: str, rng, diagnosis_right: bool = T
     return {"fixed": bool(fixed), "minutes": minutes + (CLEANUP_MIN if harm else 0), "harm": bool(harm)}
 
 
-def reward_for(outcome: dict) -> float:
-    """+20 when fixed, -0.5 per minute, -25 if the action made things worse."""
+def reward_for(outcome: dict, harm_penalty: float = HARM_PENALTY) -> float:
+    """+20 when fixed, -0.5 per minute, -harm_penalty (25) if the action made things worse."""
     if outcome["harm"]:
-        return -25 - 0.5 * outcome["minutes"]
+        return -harm_penalty - 0.5 * outcome["minutes"]
     if outcome["fixed"]:
         return 20 - 0.5 * outcome["minutes"]
     return -0.5 * outcome["minutes"]
@@ -88,8 +89,13 @@ class OutageEnv(gym.Env):
 
     metadata = {"render_modes": []}
 
-    def __init__(self, uncertain_rate: float = 0.25):
+    def __init__(self, uncertain_rate: float = 0.25, harm_penalty: float = HARM_PENALTY,
+                 human_min: float = HUMAN_MIN):
+        """`harm_penalty` and `human_min` are parameters so the reward sensitivity
+        experiment can vary them without touching the module constants."""
         super().__init__()
+        self.harm_penalty = harm_penalty
+        self.human_min = human_min
         self.observation_space = spaces.Discrete(N_STATES)
         self.action_space = spaces.Discrete(N_ACTIONS)
         self.uncertain_rate = uncertain_rate
@@ -109,7 +115,7 @@ class OutageEnv(gym.Env):
     def _outcome(self, action: str) -> dict:
         o = self.outage
         if action == "escalate":
-            return {"fixed": True, "minutes": HUMAN_MIN, "harm": False, "human": True}
+            return {"fixed": True, "minutes": self.human_min, "harm": False, "human": True}
         return {**action_outcome(o.type, action, self.np_random, o.diagnosis_right), "human": False}
 
     def valid_actions(self) -> list[int]:
@@ -130,21 +136,21 @@ class OutageEnv(gym.Env):
     def step(self, action_index: int):
         action = ACTIONS[int(action_index)]
         out = self._outcome(action)
-        reward = reward_for(out)
+        reward = reward_for(out, self.harm_penalty)
         self.log.minutes += out["minutes"]
         self.log.tried.add(action)
         done = out["fixed"] or out["harm"]
         if out["harm"]:
             self.log.harm = True
-            self.log.minutes += HUMAN_MIN  # a human has to clean up
+            self.log.minutes += self.human_min  # a human has to clean up
         if out.get("human"):
             self.log.human = True
         if out["fixed"] and not out.get("human"):
             self.log.fixed_alone = True
         if not done:
             if self.attempt == 1:  # two failed fixes: forced hand-over
-                reward += 20 - 0.5 * HUMAN_MIN - 5
-                self.log.minutes += HUMAN_MIN
+                reward += 20 - 0.5 * self.human_min - 5
+                self.log.minutes += self.human_min
                 self.log.human = True
                 done = True
             else:

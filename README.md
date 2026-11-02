@@ -37,6 +37,7 @@ The default LLM provider is `mock`, a deterministic rule-based reader, so everyt
 python -m experiments.train --episodes 4000 --seeds 5   # learning curve (CSV + PNG)
 python -m experiments.evaluate --episodes 1000          # RL agent vs baselines
 python -m experiments.compare_search --outages 200      # A* vs BFS vs greedy
+python -m experiments.sensitivity --seeds 5            # reward sensitivity (CSV + PNG)
 pytest                                                  # tests
 ```
 
@@ -63,6 +64,19 @@ Results are written to `experiments/results/`.
 | A\* | 88.5% | 2.6 |
 | BFS | 72.0% | 18.1 |
 | Greedy | 68.5% | 2.8 |
+
+**Reward sensitivity** (`experiments.sensitivity`): agents trained with a different harm penalty or human cost (5 seeds each, 4,000 episodes), then evaluated on the same 1,000 outages in the standard environment:
+
+| Setting | Avg recovery | Made it worse | Escalated |
+|---|---|---|---|
+| Harm penalty 10 | 14.2 ± 0.0 min | 0.0 ± 0.0% | 39.9 ± 0.0% |
+| Harm penalty 25 (default) | 14.2 ± 0.0 min | 0.0 ± 0.0% | 39.9 ± 0.0% |
+| Harm penalty 50 | 14.2 ± 0.0 min | 0.0 ± 0.0% | 39.9 ± 0.0% |
+| Human cost 15 min | 14.2 ± 0.0 min | 0.0 ± 0.0% | 39.9 ± 0.0% |
+| Human cost 25 min (default) | 14.2 ± 0.0 min | 0.0 ± 0.0% | 39.9 ± 0.0% |
+| Human cost 40 min | 14.2 ± 0.0 min | 0.0 ± 0.0% | 39.9 ± 0.0% |
+
+Every setting and seed learns the same act-or-escalate choices, so the results do not depend on the exact reward values in these ranges. The 35 extra minutes of cleanup already make harmful actions costly, so the harm penalty mostly adds to a cost the agent would avoid anyway.
 
 **Unseen states.** The agent counts how often it saw each state in training and saves the counts with the Q-table. In a state it never saw, it escalates instead of trusting all-zero Q-values (which would pick the first action, restart, by a tie). Training now also includes unfamiliar outages with low search confidence, so every state is visited and the rule is a safety net, not the normal path.
 
@@ -101,7 +115,7 @@ models/           Saved Q-table and lessons (generated)
 ## Limitations
 
 - Services, outages and action outcomes are simulated. Results show that the method works, not exact real-world performance.
-- The reward values shape how cautious the agent is. Sensitivity to them should be tested and reported.
+- The reward values were tested only within the ranges above (harm penalty 10 to 50, human cost 15 to 40 minutes). Values far outside these ranges may change the policy.
 - The mock LLM uses keyword rules. A real LLM is needed to evaluate extraction accuracy on real alert formats.
 - The mock LLM only recognises the 5 patterns by keyword. Alerts worded differently (for example "config change applied" instead of "config deploy ... completed") fall back to "unfamiliar pattern", so Zoroi escalates instead of acting. That is safe but slower. Testing a real LLM on the same alerts is planned.
 - In a real deployment, risky actions (rollbacks, failovers) should need human approval, and every action should be logged.
