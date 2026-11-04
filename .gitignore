@@ -19,3 +19,7 @@ experiments/results/
 .DS_Store
 .vscode/
 .idea/
+
+# Local assistant config
+CLAUDE.md
+.claude/
